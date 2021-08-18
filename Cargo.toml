@@ -2,6 +2,14 @@
 name = "cleanse"
 version = "0.2.0"
 edition = "2018"
+authors = ["Seth Stadick <sstadick@gmail.com>"]
+license = "Unlicense/MIT"
+repository = "https://github.com/sstadick/cleanse"
+description = "Small utility to clean up delimited (TSV/CSV) data."
+documentation = "https://docs.rs/cleanse"
+readme = "README.md"
+categories = ["text-processing", "command-line-interface"]
+keywords = ["text", "cli"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
