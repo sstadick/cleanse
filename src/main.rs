@@ -1,8 +1,10 @@
 use bstr::{ByteSlice, ByteVec};
 use color_eyre::Report;
+use csv::ByteRecord;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::process::exit;
 use structopt::{clap::AppSettings::ColoredHelp, StructOpt};
@@ -102,7 +104,11 @@ fn main() -> Result<(), Report> {
         return Err(Report::msg("Input delimiter may only be a single byte"));
     }
 
-    if let Err(err) = run(opts) {
+    if let Err(err) = run(
+        get_input(opts.file)?,
+        get_output(opts.output)?,
+        opts.delimiter.as_bytes()[0],
+    ) {
         if is_broken_pipe(&err) {
             exit(0)
         }
@@ -112,23 +118,31 @@ fn main() -> Result<(), Report> {
 }
 
 /// Run the program, returning any found errors
-fn run(opts: Opts) -> Result<(), Report> {
+fn run<R, W>(input: R, output: W, delimiter: u8) -> Result<(), Report>
+where
+    R: Read,
+    W: Write,
+{
     let mut reader = csv::ReaderBuilder::new()
-        .delimiter(opts.delimiter.as_bytes()[0])
-        .from_reader(get_input(opts.file)?);
+        .has_headers(false)
+        .delimiter(delimiter)
+        .from_reader(input);
 
     let mut writer = csv::WriterBuilder::new()
-        .delimiter(opts.delimiter.as_bytes()[0])
-        .from_writer(get_output(opts.output)?);
+        .has_headers(false)
+        .delimiter(delimiter)
+        .from_writer(output);
 
-    let delim = opts.delimiter.as_bytes()[0];
     for (record_number, record) in reader.byte_records().enumerate() {
         let record = record?;
-        record
-            .iter()
+        let record = record
+            .into_iter()
             .enumerate()
-            .map(|(field_number, field)| cleanse_field(field, delim, record_number, field_number))
-            .try_for_each(|field| writer.write_field(field))?;
+            .map(|(field_number, field)| {
+                cleanse_field(field, delimiter, record_number, field_number)
+            })
+            .collect();
+        writer.write_byte_record(&record)?;
     }
     Ok(())
 }
@@ -148,4 +162,30 @@ fn setup() -> Result<Opts, Report> {
         .init();
 
     Ok(Opts::from_args())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_simple() {
+        let mut input = b"\
+        a,b,c,d\n\
+        1,\"2,3\",4,5\n\
+        this,is,\"a\n\
+        very gross\",li\xffe\n"
+            .to_vec();
+
+        let expected = String::from(
+            "\
+        a,b,c,d\n\
+        1,2 3,4,5\n\
+        this,is,a very gross,lie\n",
+        );
+
+        let mut writer = vec![];
+        run(input.as_slice(), &mut writer, b',').unwrap();
+        assert_eq!(expected, writer.into_string().unwrap());
+    }
 }
