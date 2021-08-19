@@ -1,5 +1,6 @@
 use bstr::{ByteSlice, ByteVec};
 use color_eyre::Report;
+use csv::ByteRecord;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -16,6 +17,7 @@ enum CleanseChanges {
     FixedEncoding,
 }
 
+#[inline]
 fn cleanse_field(bytes: &[u8], delim: u8, record_number: usize, field_number: usize) -> String {
     // Replace any delimiter or terminator characters
     let mut changes = vec![];
@@ -44,20 +46,30 @@ fn cleanse_field(bytes: &[u8], delim: u8, record_number: usize, field_number: us
     str
 }
 
-fn get_input(path: PathBuf) -> Result<Box<dyn Read>, Report> {
-    let reader: Box<dyn Read> = if path.as_os_str() == "-" {
-        Box::new(BufReader::new(io::stdin()))
-    } else {
-        Box::new(BufReader::new(File::open(path)?))
+fn get_input(path: Option<PathBuf>) -> Result<Box<dyn Read>, Report> {
+    let reader: Box<dyn Read> = match path {
+        Some(path) => {
+            if path.as_os_str() == "-" {
+                Box::new(BufReader::new(io::stdin()))
+            } else {
+                Box::new(BufReader::new(File::open(path)?))
+            }
+        }
+        None => Box::new(BufReader::new(io::stdin())),
     };
     Ok(reader)
 }
 
-fn get_output(path: PathBuf) -> Result<Box<dyn Write>, Report> {
-    let writer: Box<dyn Write> = if path.as_os_str() == "-" {
-        Box::new(BufWriter::new(io::stdout()))
-    } else {
-        Box::new(BufWriter::new(File::create(path)?))
+fn get_output(path: Option<PathBuf>) -> Result<Box<dyn Write>, Report> {
+    let writer: Box<dyn Write> = match path {
+        Some(path) => {
+            if path.as_os_str() == "-" {
+                Box::new(BufWriter::new(io::stdout()))
+            } else {
+                Box::new(BufWriter::new(File::create(path)?))
+            }
+        }
+        None => Box::new(BufWriter::new(io::stdout())),
     };
     Ok(writer)
 }
@@ -89,11 +101,11 @@ struct Opts {
 
     /// Output path to write to, "-" to write to stdout
     #[structopt(short, long)]
-    output: PathBuf,
+    output: Option<PathBuf>,
 
     /// Input file to read from, "-" to read from stdin
     #[structopt(name = "FILE", parse(from_os_str))]
-    file: PathBuf,
+    file: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Report> {
@@ -131,17 +143,28 @@ where
         .delimiter(delimiter)
         .from_writer(output);
 
-    for (record_number, record) in reader.byte_records().enumerate() {
-        let record = record?;
-        let record = record
+    let mut record_number = 0;
+    let mut reader_record = ByteRecord::new();
+    let mut writer_record = ByteRecord::new();
+
+    while let Ok(is_more) = reader.read_byte_record(&mut reader_record) {
+        if !is_more {
+            break;
+        }
+        reader_record
             .into_iter()
             .enumerate()
-            .map(|(field_number, field)| {
-                cleanse_field(field, delimiter, record_number, field_number)
-            })
-            .collect();
-        writer.write_byte_record(&record)?;
+            .for_each(|(field_number, field)| {
+                let field = cleanse_field(field, delimiter, record_number, field_number);
+                writer_record.push_field(field.as_bytes());
+            });
+
+        writer.write_byte_record(&writer_record)?;
+        reader_record.clear();
+        writer_record.clear();
+        record_number += 1;
     }
+
     Ok(())
 }
 
@@ -157,6 +180,7 @@ fn setup() -> Result<Opts, Report> {
     }
     tracing_subscriber::fmt::fmt()
         .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
         .init();
 
     Ok(Opts::from_args())
