@@ -1,10 +1,8 @@
 use bstr::{ByteSlice, ByteVec};
 use color_eyre::Report;
-use csv::ByteRecord;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::process::exit;
 use structopt::{clap::AppSettings::ColoredHelp, StructOpt};
@@ -170,7 +168,7 @@ mod test {
 
     #[test]
     fn test_simple() {
-        let mut input = b"\
+        let input = b"\
         a,b,c,d\n\
         1,\"2,3\",4,5\n\
         this,is,\"a\n\
@@ -181,7 +179,7 @@ mod test {
             "\
         a,b,c,d\n\
         1,2 3,4,5\n\
-        this,is,a very gross,lie\n",
+        this,is,a very gross,li�e\n",
         );
 
         let mut writer = vec![];
